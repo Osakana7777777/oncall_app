@@ -1,0 +1,36 @@
+[project]
+name = "oncall-app"
+version = "0.1.0"
+description = "On-call shift scheduler"
+authors = [
+    { name = "Jinsei Shiraishi" },
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "jinja2",
+    "pandas",
+    "jpholiday",
+    "python-multipart"
+]
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+keywords = ["fastapi", "scheduler", "on-call", "shift"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Osakana7777777/oncall_app"
+"Bug Tracker" = "https://github.com/Osakana7777777/oncall_app/issues"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["oncall_app*"]
