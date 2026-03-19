@@ -6,63 +6,55 @@ from typing import Dict, List, Set
 
 import pandas as pd
 from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
-from .holiday_utils import is_holiday, jpholiday
+from .holiday_utils import is_holiday
 from .scheduler import make_schedule
-from .templates import CSS, CAL_JS_T, INDEX_T, CAL_T, SCHED_T
 
 app = FastAPI(title="当直スケジューラ")
 
 _csv_cache: Dict[str, str] = {}
 
 
-def cal_html(y: int, m: int, docs: List[str], unavail: str, gap_lo: int = 5, gap_hi: int = 8, error: str = ""):
-    weeks = list(calendar.Calendar(firstweekday=6).monthdatescalendar(y, m))
-    js = CAL_JS_T.render(init=unavail)
-    return CAL_T.render(
-        css=CSS,
-        y=y,
-        m=m,
-        docs=docs,
-        unavail=unavail,
-        gap_lo=gap_lo,
-        gap_hi=gap_hi,
-        weeks=weeks,
-        holiday=is_holiday,
-        error=error,
-        js=js,
-    )
+def _build_weeks(y: int, m: int) -> list:
+    weeks = []
+    for week in calendar.Calendar(firstweekday=6).monthdatescalendar(y, m):
+        week_data = []
+        for day in week:
+            week_data.append({
+                "date": str(day),
+                "day": day.day,
+                "month": day.month,
+                "weekday": day.weekday(),
+                "is_holiday": bool(is_holiday(day)),
+                "in_month": day.month == m,
+            })
+        weeks.append(week_data)
+    return weeks
 
 
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    today = _dt.date.today()
-    return HTMLResponse(
-        INDEX_T.render(
-            css=CSS,
-            y=today.year,
-            m=today.month,
-            docs="",
-            gap_lo=5,
-            gap_hi=8,
-            mode="jpholiday" if jpholiday else "週末のみ",
-        )
-    )
-
-
-@app.post("/calendar", response_class=HTMLResponse)
-async def show_calendar(
-    year: int = Form(...), month: int = Form(...), docs: str = Form(...),
-    gap_lo: int = Form(...), gap_hi: int = Form(...)
+@app.post("/api/calendar")
+async def api_calendar(
+    year: int = Form(...),
+    month: int = Form(...),
+    docs: str = Form(...),
+    gap_lo: int = Form(...),
+    gap_hi: int = Form(...),
 ):
-    y, m = int(year), int(month)
     doc_list = [d.strip() for d in docs.split(",") if d.strip()]
-    return HTMLResponse(cal_html(y, m, doc_list, unavail="", gap_lo=gap_lo, gap_hi=gap_hi))
+    weeks = _build_weeks(year, month)
+    return JSONResponse({
+        "year": year,
+        "month": month,
+        "docs": doc_list,
+        "weeks": weeks,
+        "gap_lo": gap_lo,
+        "gap_hi": gap_hi,
+    })
 
 
-@app.post("/schedule", response_class=HTMLResponse)
-async def schedule_route(
+@app.post("/api/schedule")
+async def api_schedule(
     year: int = Form(...),
     month: int = Form(...),
     docs: str = Form(...),
@@ -70,9 +62,7 @@ async def schedule_route(
     gap_lo: int = Form(...),
     gap_hi: int = Form(...),
 ):
-    y, m = int(year), int(month)
     doc_list = [d.strip() for d in docs.split(",") if d.strip()]
-    # unavailable 解析
     unavailable: Dict[str, Set[tuple]] = {d: set() for d in doc_list}
     if unavail:
         for item in unavail.split(","):
@@ -89,24 +79,28 @@ async def schedule_route(
                 else:
                     unavailable[doc].add((dt, "WD_NIGHT"))
     try:
-        rows = make_schedule(y, m, doc_list, unavailable, gap_lo=gap_lo, gap_hi=gap_hi)
+        rows = make_schedule(year, month, doc_list, unavailable, gap_lo=gap_lo, gap_hi=gap_hi)
     except Exception as e:
-        return HTMLResponse(cal_html(y, m, doc_list, unavail, gap_lo, gap_hi, str(e)))
+        return JSONResponse({"error": str(e)}, status_code=422)
 
     df = pd.DataFrame(rows)
     tok = uuid.uuid4().hex
     buf = io.StringIO()
     df.to_csv(buf, index=False)
     _csv_cache[tok] = buf.getvalue()
-    return HTMLResponse(SCHED_T.render(css=CSS, y=y, m=m, rows=rows, tok=tok))
+    return JSONResponse({
+        "year": year,
+        "month": month,
+        "rows": rows,
+        "tok": tok,
+    })
 
 
 @app.get("/csv", response_class=StreamingResponse)
 async def download_csv(tok: str):
     txt = _csv_cache.get(tok)
     if txt is None:
-        return HTMLResponse("<h3>リンクが無効です。</h3>")
-    # UTF-8-SIG で送信
+        return JSONResponse({"error": "リンクが無効です。"}, status_code=404)
     return StreamingResponse(
         io.BytesIO(txt.encode("utf-8-sig")),
         media_type="text/csv",

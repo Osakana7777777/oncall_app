@@ -1,14 +1,31 @@
-# oncall_app.py  (FastAPI 版・日直/宿直別クリック・優先順位なし)
-# -------------------------------------------------------------------
-# 変更点
-#   * 「土日祝日直 > 土日祝宿直 > 平日宿直」の優先順位を撤廃
-#   * 4 枠（平日宿直×2, 休日宿直×1, 休日日直×1）の割当順は
-#     各医師ごとにランダムシャッフル
-# その他の仕様・UI は従来と同じ
+# oncall_app.py  (FastAPI 版・React フロントエンド)
 # -------------------------------------------------------------------
 #  起動例:
-#     pip install fastapi uvicorn jinja2 pandas jpholiday
-#     uvicorn oncall_app:app --reload
+#     pip install fastapi uvicorn pandas jpholiday python-multipart
+#     cd frontend && npm install && npm run build
+#     uvicorn oncall_app.oncall_app:app --reload
 # -------------------------------------------------------------------
 
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
 from .routes import app
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.get("/")
+async def serve_spa():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+# SPA の client-side routing に対応: /calendar, /schedule は index.html を返す
+@app.get("/calendar")
+@app.get("/schedule")
+async def serve_spa_routes():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+# ビルド済みアセット配信
+app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
