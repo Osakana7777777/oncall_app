@@ -69,6 +69,20 @@ uvicorn oncall_app.oncall_app:app --reload
 | POST | `/api/schedule` | シフト表を生成して JSON で返す |
 | GET | `/csv?tok=<token>` | シフト表を CSV でダウンロード |
 
+## Railway へのデプロイ
+
+[Railway](https://railway.app) を使ってワンコマンドでデプロイできます。
+
+```bash
+railway login
+railway init
+railway up
+```
+
+デプロイ後は Railway ダッシュボードの **Settings → Networking → Generate Domain** で公開 URL を発行してください。
+
+プッシュのたびに自動ビルド・デプロイが実行されます（`railway.toml` に設定済み）。
+
 ## テスト
 
 ```bash
