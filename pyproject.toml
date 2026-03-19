@@ -1,6 +1,6 @@
 [project]
 name = "oncall-app"
-version = "0.2.1"
+version = "1.0.0"
 description = "On-call shift scheduler"
 authors = [
     { name = "Jinsei Shiraishi" },

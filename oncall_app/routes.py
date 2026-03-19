@@ -88,10 +88,14 @@ async def api_schedule(
     buf = io.StringIO()
     df.to_csv(buf, index=False)
     _csv_cache[tok] = buf.getvalue()
+    serializable_rows = [
+        {"Date": str(r["Date"]), "Shift": r["Shift"], "Doctor": r["Doctor"]}
+        for r in rows
+    ]
     return JSONResponse({
         "year": year,
         "month": month,
-        "rows": rows,
+        "rows": serializable_rows,
         "tok": tok,
     })
 
