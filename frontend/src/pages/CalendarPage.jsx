@@ -34,9 +34,13 @@ export default function CalendarPage() {
   function cellClass(day) {
     if (!day.in_month) return ''
     if (day.is_holiday) return 'holiday'
-    if (day.weekday === 0) return 'sun'
-    if (day.weekday === 6) return 'sat'
+    if (day.weekday === 6) return 'sun'
+    if (day.weekday === 5) return 'sat'
     return ''
+  }
+
+  function isWeekday(day) {
+    return !day.is_holiday && day.weekday !== 5 && day.weekday !== 6
   }
 
   async function handleSubmit(e) {
@@ -86,25 +90,23 @@ export default function CalendarPage() {
                 {week.map((day, di) => (
                   <td key={di} className={cellClass(day)}>
                     {day.in_month && (
-                      <>
-                        <div
-                          className="part dayPart"
-                          onClick={e => { e.stopPropagation(); toggle(day.date, 'DAY') }}
-                        >
-                          {blocked.has(key(selectedDoc, day.date, 'DAY')) && (
-                            <span className="dayMark">日</span>
-                          )}
-                        </div>
-                        <div
-                          className="part nightPart"
-                          onClick={e => { e.stopPropagation(); toggle(day.date, 'NIGHT') }}
-                        >
-                          {blocked.has(key(selectedDoc, day.date, 'NIGHT')) && (
-                            <span className="nightMark">夜</span>
-                          )}
-                        </div>
+                      <div className="cell-inner">
                         <span className="day-num">{day.day}</span>
-                      </>
+                        <div className="shift-btns">
+                          {!isWeekday(day) && (
+                            <button
+                              type="button"
+                              className={`shift-btn day-btn${blocked.has(key(selectedDoc, day.date, 'DAY')) ? ' active' : ''}`}
+                              onClick={e => { e.stopPropagation(); toggle(day.date, 'DAY') }}
+                            >昼</button>
+                          )}
+                          <button
+                            type="button"
+                            className={`shift-btn night-btn${blocked.has(key(selectedDoc, day.date, 'NIGHT')) ? ' active' : ''}`}
+                            onClick={e => { e.stopPropagation(); toggle(day.date, 'NIGHT') }}
+                          >夜</button>
+                        </div>
+                      </div>
                     )}
                   </td>
                 ))}
