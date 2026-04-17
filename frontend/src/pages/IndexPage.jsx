@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 export default function IndexPage() {
   const today = new Date()
@@ -36,6 +36,7 @@ export default function IndexPage() {
   return (
     <div>
       <h1>当直スケジューラ</h1>
+      <p><Link to="/admin">▶ アンケート管理画面へ</Link></p>
       {error && <p className="error">{error}</p>}
       <form onSubmit={handleSubmit}>
         <label>

@@ -25,3 +25,9 @@ Thumbs.db
 *.sublime-workspace
 *.swp
 *~
+
+# Survey DB (local dev; use Railway volume in production)
+/data/
+
+# Other
+memo.txt

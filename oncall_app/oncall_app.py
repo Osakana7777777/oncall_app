@@ -15,17 +15,11 @@ from .routes import app
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-@app.get("/")
-async def serve_spa():
-    return FileResponse(STATIC_DIR / "index.html")
-
-
-# SPA の client-side routing に対応: /calendar, /schedule は index.html を返す
-@app.get("/calendar")
-@app.get("/schedule")
-async def serve_spa_routes():
-    return FileResponse(STATIC_DIR / "index.html")
-
-
 # ビルド済みアセット配信
 app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+
+# SPA ルーティング: /api と /csv と /assets を除くすべて index.html を返す
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    return FileResponse(STATIC_DIR / "index.html")
