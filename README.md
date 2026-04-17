@@ -48,7 +48,7 @@ cd ..
 ## 起動方法
 
 ```bash
-uvicorn oncall_app.oncall_app:app --reload
+uv run uvicorn oncall_app.oncall_app:app --reload
 ```
 
 ブラウザで [http://localhost:8000](http://localhost:8000) にアクセスしてください。
