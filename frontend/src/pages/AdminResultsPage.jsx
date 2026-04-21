@@ -9,6 +9,9 @@ export default function AdminResultsPage() {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [gapLo, setGapLo] = useState(null)
+  const [gapHi, setGapHi] = useState(null)
+  const [scheduleError, setScheduleError] = useState('')
 
   useEffect(() => {
     (async () => {
@@ -17,7 +20,10 @@ export default function AdminResultsPage() {
         setError('アンケートが見つかりません')
         return
       }
-      setData(await res.json())
+      const json = await res.json()
+      setData(json)
+      setGapLo(json.survey.gap_lo)
+      setGapHi(json.survey.gap_hi)
     })()
   }, [id])
 
@@ -25,7 +31,7 @@ export default function AdminResultsPage() {
   if (!data) return <div>読み込み中...</div>
 
   const { survey, responses, pending } = data
-  const { year, month, docs, weeks, gap_lo, gap_hi } = survey
+  const { year, month, docs, weeks } = survey
 
   // 集計: dateKey|tag -> [doctor,...]
   const agg = {}
@@ -54,7 +60,7 @@ export default function AdminResultsPage() {
 
   async function generateSchedule() {
     setGenerating(true)
-    // アンケート結果を既存スケジューラの unavail 形式 (doctor|date|tag) に変換
+    setScheduleError('')
     const unavailParts = []
     for (const r of responses) {
       for (const item of r.blocked) {
@@ -66,13 +72,13 @@ export default function AdminResultsPage() {
     form.append('month', month)
     form.append('docs', docs.join(','))
     form.append('unavail', unavailParts.join(','))
-    form.append('gap_lo', gap_lo)
-    form.append('gap_hi', gap_hi)
+    form.append('gap_lo', gapLo)
+    form.append('gap_hi', gapHi)
     try {
       const res = await fetch('/api/schedule', { method: 'POST', body: form })
       const d = await res.json()
       if (d.error) {
-        alert(d.error)
+        setScheduleError(d.error)
       } else {
         navigate('/schedule', { state: d })
       }
@@ -155,7 +161,22 @@ export default function AdminResultsPage() {
         </tbody>
       </table>
 
-      <div style={{ marginTop: 20 }}>
+      <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <label>シフト間隔 最小:
+            <input type="number" min={1} max={30} value={gapLo ?? ''} onChange={e => setGapLo(Number(e.target.value))}
+              style={{ width: 60, marginLeft: 4, marginRight: 16 }} />
+          </label>
+          <label>最大:
+            <input type="number" min={1} max={30} value={gapHi ?? ''} onChange={e => setGapHi(Number(e.target.value))}
+              style={{ width: 60, marginLeft: 4 }} />
+          </label>
+        </div>
+        {scheduleError && (
+          <p className="error" style={{ margin: 0 }}>
+            {scheduleError}　※上記の間隔を変更して再度お試しください。
+          </p>
+        )}
         <button type="button" disabled={generating} onClick={generateSchedule}>
           {generating ? '作成中...' : 'この結果でシフト作成'}
         </button>
