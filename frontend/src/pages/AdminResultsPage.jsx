@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土']
+const DEFAULT_COUNT = 4
 
 export default function AdminResultsPage() {
   const { id } = useParams()
@@ -11,6 +12,7 @@ export default function AdminResultsPage() {
   const [generating, setGenerating] = useState(false)
   const [gapLo, setGapLo] = useState(null)
   const [gapHi, setGapHi] = useState(null)
+  const [counts, setCounts] = useState({})
   const [scheduleError, setScheduleError] = useState('')
 
   useEffect(() => {
@@ -24,6 +26,11 @@ export default function AdminResultsPage() {
       setData(json)
       setGapLo(json.survey.gap_lo)
       setGapHi(json.survey.gap_hi)
+      const initCounts = {}
+      for (const d of json.survey.docs) {
+        initCounts[d] = json.survey.counts?.[d] ?? DEFAULT_COUNT
+      }
+      setCounts(initCounts)
     })()
   }, [id])
 
@@ -58,9 +65,24 @@ export default function AdminResultsPage() {
     return agg[`${date}|${tag}`] || []
   }
 
+  function setCount(name, value) {
+    setCounts(prev => ({ ...prev, [name]: value }))
+  }
+
   async function generateSchedule() {
     setGenerating(true)
     setScheduleError('')
+    const countsPayload = {}
+    for (const d of docs) {
+      const v = counts[d]
+      const n = v === '' || v === undefined ? DEFAULT_COUNT : Number(v)
+      if (!Number.isInteger(n) || n < 0) {
+        setScheduleError(`${d} の当直回数は 0 以上の整数で入力してください。`)
+        setGenerating(false)
+        return
+      }
+      countsPayload[d] = n
+    }
     const unavailParts = []
     for (const r of responses) {
       for (const item of r.blocked) {
@@ -74,6 +96,7 @@ export default function AdminResultsPage() {
     form.append('unavail', unavailParts.join(','))
     form.append('gap_lo', gapLo)
     form.append('gap_hi', gapHi)
+    form.append('counts', JSON.stringify(countsPayload))
     try {
       const res = await fetch('/api/schedule', { method: 'POST', body: form })
       const d = await res.json()
@@ -162,6 +185,29 @@ export default function AdminResultsPage() {
       </table>
 
       <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+        <div>
+          <p style={{ margin: '4px 0', fontWeight: 'bold' }}>各医師の当直回数:</p>
+          <table style={{ borderCollapse: 'collapse' }}>
+            <tbody>
+              {docs.map(d => (
+                <tr key={d}>
+                  <td style={{ padding: '2px 8px' }}>{d}</td>
+                  <td style={{ padding: '2px 8px' }}>
+                    <input
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={counts[d] ?? DEFAULT_COUNT}
+                      onChange={e => setCount(d, e.target.value)}
+                      style={{ width: 60 }}
+                    />
+                    回
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <label>シフト間隔 最小:
             <input type="number" min={1} max={30} value={gapLo ?? ''} onChange={e => setGapLo(Number(e.target.value))}
@@ -174,7 +220,7 @@ export default function AdminResultsPage() {
         </div>
         {scheduleError && (
           <p className="error" style={{ margin: 0 }}>
-            {scheduleError}　※上記の間隔を変更して再度お試しください。
+            {scheduleError}　※上記の間隔・回数を変更して再度お試しください。
           </p>
         )}
         <button type="button" disabled={generating} onClick={generateSchedule}>

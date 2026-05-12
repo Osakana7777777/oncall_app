@@ -26,6 +26,18 @@ class TestApiCalendar:
         assert data["gap_lo"] == 5
         assert data["gap_hi"] == 8
         assert isinstance(data["weeks"], list)
+        # counts defaults to 4 per doctor when not specified
+        assert data["counts"] == {"医師A": 4, "医師B": 4}
+
+    def test_counts_param_passed_through(self):
+        import json as _json
+        res = client.post("/api/calendar", data={
+            "year": 2024, "month": 6, "docs": "医師A,医師B",
+            "gap_lo": 5, "gap_hi": 8,
+            "counts": _json.dumps({"医師A": 8, "医師B": 4}),
+        })
+        assert res.status_code == 200
+        assert res.json()["counts"] == {"医師A": 8, "医師B": 4}
 
     def test_weeks_is_list_of_weeks(self):
         res = client.post("/api/calendar", data={
@@ -91,6 +103,23 @@ class TestApiSchedule:
         counts = Counter(r["Doctor"] for r in rows)
         for doc in ["医師A", "医師B", "医師C"]:
             assert counts[doc] == 4
+
+    def test_schedule_respects_counts(self):
+        import json as _json
+        from collections import Counter
+        res = client.post("/api/schedule", data={
+            "year": 2024, "month": 6,
+            "docs": "医師A,医師B,医師C",
+            "unavail": "",
+            "gap_lo": 4, "gap_hi": 8,
+            "counts": _json.dumps({"医師A": 6, "医師B": 4, "医師C": 4}),
+        })
+        assert res.status_code == 200
+        rows = res.json()["rows"]
+        per_doc = Counter(r["Doctor"] for r in rows)
+        assert per_doc["医師A"] == 6
+        assert per_doc["医師B"] == 4
+        assert per_doc["医師C"] == 4
 
     def test_impossible_schedule_returns_error(self):
         many_docs = ",".join([f"医師{i}" for i in range(50)])
