@@ -118,3 +118,41 @@ class TestMakeSchedule:
         unavail = {d: set() for d in doctors}
         with pytest.raises(RuntimeError):
             make_schedule(2024, 6, doctors, unavail)
+
+    def test_per_doctor_counts(self):
+        doctors = ["医師A", "医師B", "医師C"]
+        counts = {"医師A": 4, "医師B": 6, "医師C": 4}
+        rows = make_schedule(
+            2024, 6, doctors, {d: set() for d in doctors},
+            gap_lo=4, gap_hi=8, counts=counts,
+        )
+        from collections import Counter
+        per_doc = Counter(r["Doctor"] for r in rows)
+        assert per_doc["医師A"] == 4
+        assert per_doc["医師B"] == 6
+        assert per_doc["医師C"] == 4
+
+    def test_zero_count_doctor(self):
+        doctors = ["医師A", "医師B", "医師C"]
+        counts = {"医師A": 4, "医師B": 4, "医師C": 0}
+        rows = make_schedule(
+            2024, 6, doctors, {d: set() for d in doctors},
+            gap_lo=5, gap_hi=8, counts=counts,
+        )
+        from collections import Counter
+        per_doc = Counter(r["Doctor"] for r in rows)
+        assert per_doc["医師C"] == 0
+        assert per_doc["医師A"] == 4
+        assert per_doc["医師B"] == 4
+
+    def test_default_count_when_missing(self):
+        doctors = ["医師A", "医師B", "医師C"]
+        # counts dict missing for some doctors -> default 4
+        rows = make_schedule(
+            2024, 6, doctors, {d: set() for d in doctors},
+            gap_lo=5, gap_hi=8, counts={"医師A": 4},
+        )
+        from collections import Counter
+        per_doc = Counter(r["Doctor"] for r in rows)
+        for d in doctors:
+            assert per_doc[d] == 4

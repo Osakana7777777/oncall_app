@@ -1,3 +1,17 @@
+## [1.4.0] - 2026-05-12
+
+### 追加
+- 各医師ごとに当直回数を個別設定できる機能（従来は全員 4 回固定）
+  - 医師名を入力すると自動で人数分の回数入力欄が表示される
+  - ローカルフォーム (`/`)、アンケート作成画面 (`/admin`)、集計画面 (`/admin/results/:id`) のすべてで設定可能
+  - 0 回も指定可能、未指定の場合はデフォルト 4 回
+  - 既存の 1:1:2 比率（休日昼 : 休日夜 : 平日夜）を維持して N 回を割り当て
+- API: `/api/calendar`・`/api/schedule`・`/api/surveys` で `counts` フィールド（JSON 文字列）を受領
+- DB: `surveys.counts` カラムを追加（既存 DB は自動マイグレーション、旧データは 4 回でフォールバック）
+- テスト 5 件追加（`test_per_doctor_counts`, `test_zero_count_doctor`, `test_default_count_when_missing`, `test_counts_param_passed_through`, `test_schedule_respects_counts`）
+
+---
+
 ## [1.3.0] - 2026-04-21
 
 ### 追加

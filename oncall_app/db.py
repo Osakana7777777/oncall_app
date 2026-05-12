@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 
 _DB_PATH = Path(os.environ.get("SURVEY_DB_PATH", Path(__file__).parent.parent / "data" / "survey.db"))
 _lock = threading.Lock()
+_DEFAULT_COUNT = 4
 
 
 def _connect() -> sqlite3.Connection:
@@ -43,6 +44,20 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_responses_survey ON survey_responses(survey_id);
             """
         )
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(surveys)").fetchall()}
+        if "counts" not in cols:
+            conn.execute("ALTER TABLE surveys ADD COLUMN counts TEXT")
+
+
+def _counts_for(docs: List[str], counts_json: Optional[str]) -> Dict[str, int]:
+    if counts_json:
+        try:
+            data = json.loads(counts_json)
+            if isinstance(data, dict):
+                return {d: int(data.get(d, _DEFAULT_COUNT)) for d in docs}
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+    return {d: _DEFAULT_COUNT for d in docs}
 
 
 def create_survey(
@@ -53,11 +68,13 @@ def create_survey(
     docs: List[str],
     gap_lo: int,
     gap_hi: int,
+    counts: Optional[Dict[str, int]] = None,
 ) -> None:
+    counts_map = counts or {d: _DEFAULT_COUNT for d in docs}
     with _lock, _connect() as conn:
         conn.execute(
-            "INSERT INTO surveys (id, title, year, month, docs, gap_lo, gap_hi, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO surveys (id, title, year, month, docs, gap_lo, gap_hi, counts, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 survey_id,
                 title,
@@ -66,6 +83,7 @@ def create_survey(
                 json.dumps(docs, ensure_ascii=False),
                 gap_lo,
                 gap_hi,
+                json.dumps(counts_map, ensure_ascii=False),
                 _dt.datetime.utcnow().isoformat(timespec="seconds"),
             ),
         )
@@ -78,14 +96,16 @@ def get_survey(survey_id: str) -> Optional[Dict[str, Any]]:
         ).fetchone()
     if not row:
         return None
+    docs = json.loads(row["docs"])
     return {
         "id": row["id"],
         "title": row["title"],
         "year": row["year"],
         "month": row["month"],
-        "docs": json.loads(row["docs"]),
+        "docs": docs,
         "gap_lo": row["gap_lo"],
         "gap_hi": row["gap_hi"],
+        "counts": _counts_for(docs, row["counts"] if "counts" in row.keys() else None),
         "created_at": row["created_at"],
     }
 
@@ -97,20 +117,22 @@ def list_surveys() -> List[Dict[str, Any]]:
             "  (SELECT COUNT(*) FROM survey_responses r WHERE r.survey_id = s.id) AS response_count "
             "FROM surveys s ORDER BY s.created_at DESC"
         ).fetchall()
-    return [
-        {
+    result = []
+    for r in rows:
+        docs = json.loads(r["docs"])
+        result.append({
             "id": r["id"],
             "title": r["title"],
             "year": r["year"],
             "month": r["month"],
-            "docs": json.loads(r["docs"]),
+            "docs": docs,
             "gap_lo": r["gap_lo"],
             "gap_hi": r["gap_hi"],
+            "counts": _counts_for(docs, r["counts"] if "counts" in r.keys() else None),
             "created_at": r["created_at"],
             "response_count": r["response_count"],
-        }
-        for r in rows
-    ]
+        })
+    return result
 
 
 def upsert_response(survey_id: str, doctor: str, blocked: List[str]) -> None:

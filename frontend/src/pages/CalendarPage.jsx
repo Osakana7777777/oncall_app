@@ -7,7 +7,7 @@ export default function CalendarPage() {
   const { state } = useLocation()
   const navigate = useNavigate()
 
-  const { year, month, docs, weeks, gap_lo, gap_hi } = state || {}
+  const { year, month, docs, weeks, gap_lo, gap_hi, counts } = state || {}
   const [selectedDoc, setSelectedDoc] = useState(docs?.[0] ?? '')
   const [blocked, setBlocked] = useState(new Set())
   const [loading, setLoading] = useState(false)
@@ -54,6 +54,7 @@ export default function CalendarPage() {
     form.append('unavail', [...blocked].join(','))
     form.append('gap_lo', gap_lo)
     form.append('gap_hi', gap_hi)
+    if (counts) form.append('counts', JSON.stringify(counts))
     try {
       const res = await fetch('/api/schedule', { method: 'POST', body: form })
       const data = await res.json()

@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+
+const DEFAULT_COUNT = 4
 
 export default function AdminPage() {
   const today = new Date()
@@ -10,8 +12,18 @@ export default function AdminPage() {
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth() + 1)
   const [docs, setDocs] = useState('')
+  const [counts, setCounts] = useState({})
   const [gapLo, setGapLo] = useState(5)
   const [gapHi, setGapHi] = useState(8)
+
+  const docList = useMemo(
+    () => docs.split(',').map(d => d.trim()).filter(Boolean),
+    [docs],
+  )
+
+  function setCount(name, value) {
+    setCounts(prev => ({ ...prev, [name]: value }))
+  }
 
   async function refresh() {
     const res = await fetch('/api/surveys')
@@ -25,6 +37,17 @@ export default function AdminPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
+    const countsPayload = {}
+    for (const d of docList) {
+      const v = counts[d]
+      const n = v === '' || v === undefined ? DEFAULT_COUNT : Number(v)
+      if (!Number.isInteger(n) || n < 0) {
+        setError(`${d} の当直回数は 0 以上の整数で入力してください。`)
+        setLoading(false)
+        return
+      }
+      countsPayload[d] = n
+    }
     const form = new FormData()
     form.append('title', title || `${year}年${month}月`)
     form.append('year', year)
@@ -32,6 +55,7 @@ export default function AdminPage() {
     form.append('docs', docs)
     form.append('gap_lo', gapLo)
     form.append('gap_hi', gapHi)
+    form.append('counts', JSON.stringify(countsPayload))
     try {
       const res = await fetch('/api/surveys', { method: 'POST', body: form })
       if (!res.ok) {
@@ -40,6 +64,7 @@ export default function AdminPage() {
       }
       setTitle('')
       setDocs('')
+      setCounts({})
       await refresh()
     } catch (err) {
       setError(err.message)
@@ -94,7 +119,32 @@ export default function AdminPage() {
               <input value={docs} onChange={e => setDocs(e.target.value)} size={40} required />
             </label>
           </div>
-          <div>
+          {docList.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <p style={{ margin: '4px 0', fontWeight: 'bold' }}>各医師の当直回数:</p>
+              <table style={{ borderCollapse: 'collapse' }}>
+                <tbody>
+                  {docList.map(d => (
+                    <tr key={d}>
+                      <td style={{ padding: '2px 8px' }}>{d}</td>
+                      <td style={{ padding: '2px 8px' }}>
+                        <input
+                          type="number"
+                          min={0}
+                          max={30}
+                          value={counts[d] ?? DEFAULT_COUNT}
+                          onChange={e => setCount(d, e.target.value)}
+                          style={{ width: 60 }}
+                        />
+                        回
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{ marginTop: 8 }}>
             <label>シフト間隔 最小:
               <input type="number" value={gapLo} onChange={e => setGapLo(e.target.value)} style={{ width: 60 }} min={1} max={30} required />
             </label>{' '}

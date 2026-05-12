@@ -1,4 +1,5 @@
 import io
+import json
 import uuid
 import calendar
 import datetime as _dt
@@ -9,7 +10,7 @@ from fastapi import FastAPI, Form, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 
 from .holiday_utils import is_holiday
-from .scheduler import make_schedule
+from .scheduler import make_schedule, DEFAULT_COUNT
 from . import db
 
 app = FastAPI(title="当直スケジューラ")
@@ -36,6 +37,27 @@ def _build_weeks(y: int, m: int) -> list:
     return weeks
 
 
+def _parse_counts(raw: str, doc_list: List[str]) -> Dict[str, int]:
+    """counts (JSON 文字列) を医師名→回数 dict に変換。未指定の医師はデフォルト値。"""
+    parsed: Dict[str, int] = {}
+    if raw:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=422, detail=f"counts の形式が不正です: {e}")
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=422, detail="counts はオブジェクトで指定してください。")
+        for k, v in data.items():
+            try:
+                n = int(v)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail=f"{k} の当直回数が数値ではありません。")
+            if n < 0:
+                raise HTTPException(status_code=422, detail=f"{k} の当直回数は 0 以上にしてください。")
+            parsed[k] = n
+    return {d: parsed.get(d, DEFAULT_COUNT) for d in doc_list}
+
+
 @app.post("/api/calendar")
 async def api_calendar(
     year: int = Form(...),
@@ -43,8 +65,10 @@ async def api_calendar(
     docs: str = Form(...),
     gap_lo: int = Form(...),
     gap_hi: int = Form(...),
+    counts: str = Form(""),
 ):
     doc_list = [d.strip() for d in docs.split(",") if d.strip()]
+    counts_map = _parse_counts(counts, doc_list)
     weeks = _build_weeks(year, month)
     return JSONResponse({
         "year": year,
@@ -53,6 +77,7 @@ async def api_calendar(
         "weeks": weeks,
         "gap_lo": gap_lo,
         "gap_hi": gap_hi,
+        "counts": counts_map,
     })
 
 
@@ -64,8 +89,10 @@ async def api_schedule(
     unavail: str = Form(""),
     gap_lo: int = Form(...),
     gap_hi: int = Form(...),
+    counts: str = Form(""),
 ):
     doc_list = [d.strip() for d in docs.split(",") if d.strip()]
+    counts_map = _parse_counts(counts, doc_list)
     unavailable: Dict[str, Set[tuple]] = {d: set() for d in doc_list}
     if unavail:
         for item in unavail.split(","):
@@ -82,7 +109,10 @@ async def api_schedule(
                 else:
                     unavailable[doc].add((dt, "WD_NIGHT"))
     try:
-        rows = make_schedule(year, month, doc_list, unavailable, gap_lo=gap_lo, gap_hi=gap_hi)
+        rows = make_schedule(
+            year, month, doc_list, unavailable,
+            gap_lo=gap_lo, gap_hi=gap_hi, counts=counts_map,
+        )
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=422)
 
@@ -127,6 +157,7 @@ def _survey_public(survey: dict) -> dict:
         "year": survey["year"],
         "month": survey["month"],
         "docs": survey["docs"],
+        "counts": survey.get("counts", {d: DEFAULT_COUNT for d in survey["docs"]}),
         "gap_lo": survey["gap_lo"],
         "gap_hi": survey["gap_hi"],
         "created_at": survey["created_at"],
@@ -142,12 +173,17 @@ async def create_survey(
     docs: str = Form(...),
     gap_lo: int = Form(5),
     gap_hi: int = Form(8),
+    counts: str = Form(""),
 ):
     doc_list = [d.strip() for d in docs.split(",") if d.strip()]
     if not doc_list:
         raise HTTPException(status_code=422, detail="医師名を1名以上入力してください。")
+    counts_map = _parse_counts(counts, doc_list)
     survey_id = uuid.uuid4().hex[:12]
-    db.create_survey(survey_id, title.strip() or f"{year}年{month}月", year, month, doc_list, gap_lo, gap_hi)
+    db.create_survey(
+        survey_id, title.strip() or f"{year}年{month}月", year, month,
+        doc_list, gap_lo, gap_hi, counts_map,
+    )
     return JSONResponse({"id": survey_id})
 
 
