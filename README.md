@@ -112,7 +112,7 @@ railway up
 
 デプロイ後は Railway ダッシュボードの **Settings → Networking → Generate Domain** で公開 URL を発行してください。
 
-プッシュのたびに自動ビルド・デプロイが実行されます（`railway.toml` に設定済み）。
+`railway.toml` にはビルドコマンドと起動コマンドのみが定義されています。GitHub 連携でプロジェクトを作成した場合は、Railway が対象ブランチへのプッシュを検知して自動ビルド・デプロイを実行します（設定は Railway ダッシュボードの **Settings → Source** にあります）。`railway up` による手動デプロイ運用の場合、プッシュしただけでは自動デプロイされません。
 
 ### アンケートデータの永続化
 
