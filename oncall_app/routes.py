@@ -1,12 +1,16 @@
 import io
 import json
+import os
+import secrets
+import time
 import uuid
 import calendar
 import datetime as _dt
-from typing import Dict, List, Set
+from collections import OrderedDict
+from typing import Dict, List, Optional, Set
 
 import pandas as pd
-from fastapi import FastAPI, Form, HTTPException
+from fastapi import Depends, FastAPI, Form, Header, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 
 from .holiday_utils import is_holiday
@@ -17,7 +21,42 @@ app = FastAPI(title="当直スケジューラ")
 
 db.init_db()
 
-_csv_cache: Dict[str, str] = {}
+MAX_DOCTORS = 100
+MAX_COUNT = 62  # 1か月の最大スロット数 (31日 × 2枠)
+
+_CSV_TTL_SECONDS = 60 * 60
+_CSV_CACHE_MAX = 200
+_csv_cache: "OrderedDict[str, tuple]" = OrderedDict()
+
+
+def _csv_cache_put(tok: str, txt: str) -> None:
+    now = time.time()
+    expired = [k for k, (ts, _) in _csv_cache.items() if now - ts > _CSV_TTL_SECONDS]
+    for k in expired:
+        del _csv_cache[k]
+    while len(_csv_cache) >= _CSV_CACHE_MAX:
+        _csv_cache.popitem(last=False)
+    _csv_cache[tok] = (now, txt)
+
+
+def _csv_cache_get(tok: str) -> Optional[str]:
+    item = _csv_cache.get(tok)
+    if item is None:
+        return None
+    ts, txt = item
+    if time.time() - ts > _CSV_TTL_SECONDS:
+        del _csv_cache[tok]
+        return None
+    return txt
+
+
+def require_admin(x_admin_token: str = Header(default="")):
+    """ADMIN_TOKEN 環境変数が設定されている場合のみ認証を要求する。"""
+    expected = os.environ.get("ADMIN_TOKEN", "")
+    if not expected:
+        return
+    if not secrets.compare_digest(x_admin_token, expected):
+        raise HTTPException(status_code=401, detail="管理トークンが必要です。")
 
 
 def _build_weeks(y: int, m: int) -> list:
@@ -54,8 +93,32 @@ def _parse_counts(raw: str, doc_list: List[str]) -> Dict[str, int]:
                 raise HTTPException(status_code=422, detail=f"{k} の当直回数が数値ではありません。")
             if n < 0:
                 raise HTTPException(status_code=422, detail=f"{k} の当直回数は 0 以上にしてください。")
+            if n > MAX_COUNT:
+                raise HTTPException(status_code=422, detail=f"{k} の当直回数は {MAX_COUNT} 以下にしてください。")
             parsed[k] = n
     return {d: parsed.get(d, DEFAULT_COUNT) for d in doc_list}
+
+
+def _parse_docs(docs: str) -> List[str]:
+    doc_list = [d.strip() for d in docs.split(",") if d.strip()]
+    if len(doc_list) > MAX_DOCTORS:
+        raise HTTPException(status_code=422, detail=f"医師は最大 {MAX_DOCTORS} 名までです。")
+    return doc_list
+
+
+def _validate_year_month(year: int, month: int) -> None:
+    if not 1 <= month <= 12:
+        raise HTTPException(status_code=422, detail="月は 1〜12 で指定してください。")
+    if not 1900 <= year <= 2100:
+        raise HTTPException(status_code=422, detail="年は 1900〜2100 で指定してください。")
+
+
+def _validate_gaps(gap_lo: int, gap_hi: int) -> None:
+    if not 1 <= gap_lo <= gap_hi <= 31:
+        raise HTTPException(
+            status_code=422,
+            detail="シフト間隔は 1〜31 の範囲で、最小 ≤ 最大 となるように指定してください。",
+        )
 
 
 @app.post("/api/calendar")
@@ -67,7 +130,9 @@ async def api_calendar(
     gap_hi: int = Form(...),
     counts: str = Form(""),
 ):
-    doc_list = [d.strip() for d in docs.split(",") if d.strip()]
+    _validate_year_month(year, month)
+    _validate_gaps(gap_lo, gap_hi)
+    doc_list = _parse_docs(docs)
     counts_map = _parse_counts(counts, doc_list)
     weeks = _build_weeks(year, month)
     return JSONResponse({
@@ -91,15 +156,22 @@ async def api_schedule(
     gap_hi: int = Form(...),
     counts: str = Form(""),
 ):
-    doc_list = [d.strip() for d in docs.split(",") if d.strip()]
+    _validate_year_month(year, month)
+    _validate_gaps(gap_lo, gap_hi)
+    doc_list = _parse_docs(docs)
     counts_map = _parse_counts(counts, doc_list)
     unavailable: Dict[str, Set[tuple]] = {d: set() for d in doc_list}
     if unavail:
         for item in unavail.split(","):
             if not item:
                 continue
-            doc, date_str, tag = item.split("|")
-            dt = _dt.date.fromisoformat(date_str)
+            try:
+                doc, date_str, tag = item.split("|")
+                dt = _dt.date.fromisoformat(date_str)
+            except ValueError:
+                raise HTTPException(status_code=422, detail=f"unavail の形式が不正です: {item}")
+            if doc not in unavailable:
+                raise HTTPException(status_code=422, detail=f"医師名が一致しません: {doc}")
             if tag == "DAY":
                 if dt.weekday() >= 5 or is_holiday(dt):
                     unavailable[doc].add((dt, "WE_DAY"))
@@ -113,14 +185,14 @@ async def api_schedule(
             year, month, doc_list, unavailable,
             gap_lo=gap_lo, gap_hi=gap_hi, counts=counts_map,
         )
-    except Exception as e:
+    except (RuntimeError, ValueError) as e:
         return JSONResponse({"error": str(e)}, status_code=422)
 
     df = pd.DataFrame(rows)
     tok = uuid.uuid4().hex
     buf = io.StringIO()
     df.to_csv(buf, index=False)
-    _csv_cache[tok] = buf.getvalue()
+    _csv_cache_put(tok, buf.getvalue())
     serializable_rows = [
         {"Date": str(r["Date"]), "Shift": r["Shift"], "Doctor": r["Doctor"]}
         for r in rows
@@ -135,7 +207,7 @@ async def api_schedule(
 
 @app.get("/csv", response_class=StreamingResponse)
 async def download_csv(tok: str):
-    txt = _csv_cache.get(tok)
+    txt = _csv_cache_get(tok)
     if txt is None:
         return JSONResponse({"error": "リンクが無効です。"}, status_code=404)
     return StreamingResponse(
@@ -165,7 +237,7 @@ def _survey_public(survey: dict) -> dict:
     }
 
 
-@app.post("/api/surveys")
+@app.post("/api/surveys", dependencies=[Depends(require_admin)])
 async def create_survey(
     title: str = Form(...),
     year: int = Form(...),
@@ -175,7 +247,9 @@ async def create_survey(
     gap_hi: int = Form(8),
     counts: str = Form(""),
 ):
-    doc_list = [d.strip() for d in docs.split(",") if d.strip()]
+    _validate_year_month(year, month)
+    _validate_gaps(gap_lo, gap_hi)
+    doc_list = _parse_docs(docs)
     if not doc_list:
         raise HTTPException(status_code=422, detail="医師名を1名以上入力してください。")
     counts_map = _parse_counts(counts, doc_list)
@@ -187,7 +261,7 @@ async def create_survey(
     return JSONResponse({"id": survey_id})
 
 
-@app.get("/api/surveys")
+@app.get("/api/surveys", dependencies=[Depends(require_admin)])
 async def list_surveys():
     return JSONResponse({"surveys": db.list_surveys()})
 
@@ -200,7 +274,7 @@ async def get_survey(survey_id: str):
     return JSONResponse(_survey_public(survey))
 
 
-@app.delete("/api/surveys/{survey_id}")
+@app.delete("/api/surveys/{survey_id}", dependencies=[Depends(require_admin)])
 async def delete_survey(survey_id: str):
     if not db.delete_survey(survey_id):
         raise HTTPException(status_code=404, detail="アンケートが見つかりません。")
@@ -249,7 +323,7 @@ async def submit_survey_response(
     return JSONResponse({"ok": True, "count": len(items)})
 
 
-@app.get("/api/surveys/{survey_id}/results")
+@app.get("/api/surveys/{survey_id}/results", dependencies=[Depends(require_admin)])
 async def get_survey_results(survey_id: str):
     survey = db.get_survey(survey_id)
     if not survey:

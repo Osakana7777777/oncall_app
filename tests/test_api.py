@@ -162,6 +162,90 @@ class TestCsvDownload:
         assert res.status_code == 404
 
 
+class TestValidation:
+    def test_invalid_month_returns_422(self):
+        res = client.post("/api/calendar", data={
+            "year": 2024, "month": 13, "docs": "医師A",
+            "gap_lo": 5, "gap_hi": 8,
+        })
+        assert res.status_code == 422
+
+    def test_out_of_range_year_returns_422(self):
+        res = client.post("/api/calendar", data={
+            "year": 99999, "month": 6, "docs": "医師A",
+            "gap_lo": 5, "gap_hi": 8,
+        })
+        assert res.status_code == 422
+
+    def test_oversized_count_returns_422(self):
+        import json as _json
+        res = client.post("/api/schedule", data={
+            "year": 2024, "month": 6, "docs": "医師A",
+            "unavail": "", "gap_lo": 5, "gap_hi": 8,
+            "counts": _json.dumps({"医師A": 9999999999}),
+        })
+        assert res.status_code == 422
+
+    def test_too_many_doctors_returns_422(self):
+        docs = ",".join(f"医師{i}" for i in range(101))
+        res = client.post("/api/calendar", data={
+            "year": 2024, "month": 6, "docs": docs,
+            "gap_lo": 5, "gap_hi": 8,
+        })
+        assert res.status_code == 422
+
+    def test_malformed_unavail_returns_422(self):
+        res = client.post("/api/schedule", data={
+            "year": 2024, "month": 6, "docs": "医師A,医師B,医師C",
+            "unavail": "garbage-without-pipes",
+            "gap_lo": 5, "gap_hi": 8,
+        })
+        assert res.status_code == 422
+
+    def test_unknown_doctor_in_unavail_returns_422(self):
+        res = client.post("/api/schedule", data={
+            "year": 2024, "month": 6, "docs": "医師A,医師B,医師C",
+            "unavail": "医師X|2024-06-01|DAY",
+            "gap_lo": 5, "gap_hi": 8,
+        })
+        assert res.status_code == 422
+
+    def test_gap_lo_greater_than_gap_hi_returns_422(self):
+        res = client.post("/api/calendar", data={
+            "year": 2024, "month": 6, "docs": "医師A",
+            "gap_lo": 8, "gap_hi": 5,
+        })
+        assert res.status_code == 422
+
+
+class TestAdminAuth:
+    def test_open_access_when_token_not_configured(self):
+        res = client.get("/api/surveys")
+        assert res.status_code == 200
+
+    def test_admin_endpoints_reject_missing_token(self, monkeypatch):
+        monkeypatch.setenv("ADMIN_TOKEN", "test-secret")
+        assert client.get("/api/surveys").status_code == 401
+        assert client.delete("/api/surveys/abc123").status_code == 401
+        assert client.get("/api/surveys/abc123/results").status_code == 401
+
+    def test_admin_endpoints_reject_wrong_token(self, monkeypatch):
+        monkeypatch.setenv("ADMIN_TOKEN", "test-secret")
+        res = client.get("/api/surveys", headers={"X-Admin-Token": "wrong"})
+        assert res.status_code == 401
+
+    def test_admin_endpoints_accept_correct_token(self, monkeypatch):
+        monkeypatch.setenv("ADMIN_TOKEN", "test-secret")
+        res = client.get("/api/surveys", headers={"X-Admin-Token": "test-secret"})
+        assert res.status_code == 200
+
+    def test_public_survey_endpoints_stay_open(self, monkeypatch):
+        # 医師向けの回答ページ用 API は認証不要のまま
+        monkeypatch.setenv("ADMIN_TOKEN", "test-secret")
+        res = client.get("/api/surveys/nonexistent")
+        assert res.status_code == 404  # 401 ではなく通常の 404
+
+
 class TestSpaRoutes:
     def test_root_returns_html(self):
         res = client.get("/")

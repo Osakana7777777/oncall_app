@@ -73,19 +73,32 @@ uv run uvicorn oncall_app.oncall_app:app --reload
 
 ## API エンドポイント
 
-| メソッド | パス | 説明 |
-|---------|------|------|
-| GET | `/` | React SPA を返す |
-| POST | `/api/calendar` | カレンダーデータを JSON で返す |
-| POST | `/api/schedule` | シフト表を生成して JSON で返す |
-| GET | `/csv?tok=<token>` | シフト表を CSV でダウンロード |
-| POST | `/api/surveys` | アンケートを作成 |
-| GET | `/api/surveys` | アンケート一覧 |
-| GET | `/api/surveys/{id}` | アンケート情報 (医師・カレンダー) |
-| DELETE | `/api/surveys/{id}` | アンケート削除 |
-| POST | `/api/surveys/{id}/responses` | 医師の回答を送信 (再送で上書き) |
-| GET | `/api/surveys/{id}/responses/{doctor}` | ある医師の回答を取得 |
-| GET | `/api/surveys/{id}/results` | 集計結果を取得 |
+| メソッド | パス | 説明 | 認証 |
+|---------|------|------|------|
+| GET | `/` | React SPA を返す | - |
+| POST | `/api/calendar` | カレンダーデータを JSON で返す | - |
+| POST | `/api/schedule` | シフト表を生成して JSON で返す | - |
+| GET | `/csv?tok=<token>` | シフト表を CSV でダウンロード (リンクは発行から 1 時間有効) | - |
+| POST | `/api/surveys` | アンケートを作成 | 管理 |
+| GET | `/api/surveys` | アンケート一覧 | 管理 |
+| GET | `/api/surveys/{id}` | アンケート情報 (医師・カレンダー) | - |
+| DELETE | `/api/surveys/{id}` | アンケート削除 | 管理 |
+| POST | `/api/surveys/{id}/responses` | 医師の回答を送信 (再送で上書き) | - |
+| GET | `/api/surveys/{id}/responses/{doctor}` | ある医師の回答を取得 | - |
+| GET | `/api/surveys/{id}/results` | 集計結果を取得 | 管理 |
+
+「管理」の付いたエンドポイントは、環境変数 `ADMIN_TOKEN` が設定されている場合に `X-Admin-Token` ヘッダによる認証が必要になります（未設定の場合は認証なしで動作します）。
+
+## セキュリティ (管理画面の保護)
+
+アンケートには医師名や勤務不可日といった個人情報が含まれるため、公開サーバで運用する場合は必ず管理トークンを設定してください。
+
+```bash
+# トークンの生成例
+openssl rand -hex 24
+```
+
+環境変数 `ADMIN_TOKEN` に生成した値を設定すると、管理画面 (`/admin`) を開いた際にトークン入力画面が表示されます。入力したトークンはブラウザの sessionStorage に保持されます。医師向けのアンケート回答ページ (`/survey/<id>`) は共有 URL で使うため認証不要のままです。
 
 ## Railway へのデプロイ
 
@@ -109,6 +122,10 @@ railway up
 2. **Variables** で `SURVEY_DB_PATH=/data/survey.db` を追加
 3. 次回のデプロイ以降、アンケートデータが永続化されます
 
+### 管理トークンの設定（公開運用では必須）
+
+Railway ダッシュボードの **Variables** で `ADMIN_TOKEN` にランダムな文字列（`openssl rand -hex 24` などで生成）を設定してください。未設定のままだと管理画面・アンケートデータに誰でもアクセスできます。
+
 ## テスト
 
 ```bash
@@ -116,7 +133,7 @@ pip install pytest httpx
 pytest tests/ -v
 ```
 
-33 件のテスト（ユニットテスト・統合テスト）が含まれています。
+50 件のテスト（ユニットテスト・統合テスト・セキュリティテスト）が含まれています。
 
 ## 開発者
 

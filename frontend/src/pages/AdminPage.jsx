@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { adminFetch, setAdminToken } from '../adminApi'
 
 const DEFAULT_COUNT = 4
 
@@ -8,6 +9,8 @@ export default function AdminPage() {
   const [surveys, setSurveys] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [needToken, setNeedToken] = useState(false)
+  const [tokenInput, setTokenInput] = useState('')
   const [title, setTitle] = useState('')
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth() + 1)
@@ -26,12 +29,25 @@ export default function AdminPage() {
   }
 
   async function refresh() {
-    const res = await fetch('/api/surveys')
+    const res = await adminFetch('/api/surveys')
+    if (res.status === 401) {
+      setNeedToken(true)
+      setSurveys([])
+      return
+    }
+    setNeedToken(false)
     const data = await res.json()
     setSurveys(data.surveys || [])
   }
 
   useEffect(() => { refresh() }, [])
+
+  function handleTokenSubmit(e) {
+    e.preventDefault()
+    setAdminToken(tokenInput.trim())
+    setTokenInput('')
+    refresh()
+  }
 
   async function handleCreate(e) {
     e.preventDefault()
@@ -57,7 +73,11 @@ export default function AdminPage() {
     form.append('gap_hi', gapHi)
     form.append('counts', JSON.stringify(countsPayload))
     try {
-      const res = await fetch('/api/surveys', { method: 'POST', body: form })
+      const res = await adminFetch('/api/surveys', { method: 'POST', body: form })
+      if (res.status === 401) {
+        setNeedToken(true)
+        throw new Error('管理トークンが必要です。')
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.detail || 'エラーが発生しました')
@@ -75,7 +95,11 @@ export default function AdminPage() {
 
   async function handleDelete(id) {
     if (!confirm('このアンケートを削除しますか?')) return
-    await fetch(`/api/surveys/${id}`, { method: 'DELETE' })
+    const res = await adminFetch(`/api/surveys/${id}`, { method: 'DELETE' })
+    if (res.status === 401) {
+      setNeedToken(true)
+      return
+    }
     await refresh()
   }
 
@@ -90,6 +114,30 @@ export default function AdminPage() {
     } catch {
       prompt('このURLをコピーしてください', surveyUrl(id))
     }
+  }
+
+  if (needToken) {
+    return (
+      <div>
+        <p><Link to="/">← トップへ</Link></p>
+        <h1>管理画面 (アンケート)</h1>
+        <section style={{ border: '1px solid #ccc', padding: 12 }}>
+          <h2>管理トークン認証</h2>
+          <p>この管理画面は保護されています。管理トークンを入力してください。</p>
+          <form onSubmit={handleTokenSubmit}>
+            <input
+              type="password"
+              value={tokenInput}
+              onChange={e => setTokenInput(e.target.value)}
+              size={40}
+              placeholder="管理トークン"
+              required
+            />{' '}
+            <button type="submit">認証</button>
+          </form>
+        </section>
+      </div>
+    )
   }
 
   return (

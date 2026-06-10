@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { adminFetch } from '../adminApi'
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土']
 const DEFAULT_COUNT = 4
@@ -17,7 +18,11 @@ export default function AdminResultsPage() {
 
   useEffect(() => {
     (async () => {
-      const res = await fetch(`/api/surveys/${id}/results`)
+      const res = await adminFetch(`/api/surveys/${id}/results`)
+      if (res.status === 401) {
+        setError('管理トークンが必要です。管理画面で認証してから開き直してください。')
+        return
+      }
       if (!res.ok) {
         setError('アンケートが見つかりません')
         return
